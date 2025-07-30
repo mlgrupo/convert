@@ -365,6 +365,8 @@ async function processarUrlGoogleDrive(url, outputPath, emailUsuario = CONFIG.us
   console.log(`👤 Email de impersonation: ${emailUsuario}`);
   console.log(`🏢 Domain Wide Delegation: Ativo`);
   
+  let fileName = null;
+  
   if (type === 'folder') {
     // Se for uma pasta, lista os arquivos de mídia e usa o primeiro
     const arquivos = await listarArquivosMidia(id, emailUsuario);
@@ -373,19 +375,27 @@ async function processarUrlGoogleDrive(url, outputPath, emailUsuario = CONFIG.us
       throw new Error('Nenhum arquivo de vídeo/áudio encontrado na pasta');
     }
     
-    console.log(`📄 Usando o primeiro arquivo: ${arquivos[0].name}`);
+    fileName = arquivos[0].name;
+    console.log(`📄 Usando o primeiro arquivo: ${fileName}`);
     await baixarArquivoDrive(arquivos[0].id, outputPath, emailUsuario);
     
   } else if (type === 'file') {
-    // Se for um arquivo, baixa diretamente
+    // Se for um arquivo, obter informações primeiro
+    const fileInfo = await verificarArquivo(id, emailUsuario);
+    if (!fileInfo) {
+      throw new Error(`Arquivo não encontrado ou sem acesso: ${id}`);
+    }
+    
+    fileName = fileInfo.name;
+    console.log(`📄 Baixando arquivo: ${fileName}`);
     await baixarArquivoDrive(id, outputPath, emailUsuario);
     
   } else {
     throw new Error('Tipo de URL não reconhecido');
   }
   
-  // Retornar o caminho do arquivo baixado
-  return outputPath;
+  // Retornar o caminho do arquivo baixado e o nome
+  return { path: outputPath, fileName: fileName };
 }
 
 /**

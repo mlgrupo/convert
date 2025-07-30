@@ -234,14 +234,16 @@ router.post('/', async (req, res) => {
     let downloadPath;
     let videoTitle = null;
     
-    if (isGoogleDriveUrl(link)) {
-      console.log('📁 Detectado link do Google Drive');
-      // Gerar nome único para o arquivo temporário
-      const timestamp = Date.now();
-      const tempFileName = `drive_${timestamp}.mp4`;
-      const tempPath = path.join(__dirname, '../temp', tempFileName);
-      downloadPath = await processarUrlGoogleDrive(link, tempPath);
-    } else if (ytdl.validateURL(link)) {
+         if (isGoogleDriveUrl(link)) {
+       console.log('📁 Detectado link do Google Drive');
+       // Gerar nome único para o arquivo temporário
+       const timestamp = Date.now();
+       const tempFileName = `drive_${timestamp}.mp4`;
+       const tempPath = path.join(__dirname, '../temp', tempFileName);
+       const driveResult = await processarUrlGoogleDrive(link, tempPath);
+       downloadPath = driveResult.path;
+       videoTitle = driveResult.fileName; // Usar o nome do arquivo do Drive
+     } else if (ytdl.validateURL(link)) {
       console.log('📺 Detectado link do YouTube');
       const youtubeResult = await downloadYouTubeVideo(link);
       downloadPath = youtubeResult.path;
@@ -258,19 +260,19 @@ router.post('/', async (req, res) => {
     tempFilePath = downloadPath;
     console.log(`✅ Arquivo baixado: ${tempFilePath}`);
     
-    // Extrair metadados do vídeo para obter o nome (se não foi extraído do YouTube)
-    if (!videoTitle) {
-      const metadata = await extractVideoMetadata(tempFilePath);
-      videoTitle = metadata.title;
-    }
-    
-    const safeVideoTitle = generateSafeFileName(videoTitle);
-    
-    // Gerar nome do arquivo baseado no título do vídeo ou nome padrão
-    const timestamp = Date.now();
-    const baseFileName = safeVideoTitle || `audio_${timestamp}`;
-    const outputFileName = `${baseFileName}.m4a`;
-    outputPath = path.join(__dirname, '../temp', outputFileName);
+         // Extrair metadados do vídeo para obter o nome (se não foi extraído do YouTube ou Google Drive)
+     if (!videoTitle) {
+       const metadata = await extractVideoMetadata(tempFilePath);
+       videoTitle = metadata.title;
+     }
+     
+     const safeVideoTitle = generateSafeFileName(videoTitle);
+     
+     // Gerar nome do arquivo baseado no título do vídeo ou nome padrão
+     const timestamp = Date.now();
+     const baseFileName = safeVideoTitle || `audio_${timestamp}`;
+     const outputFileName = `${baseFileName}.m4a`;
+     outputPath = path.join(__dirname, '../temp', outputFileName);
     
     console.log(`📝 Nome do arquivo: ${outputFileName}`);
     console.log('🔄 Convertendo para M4A e removendo silêncio...');
@@ -281,6 +283,7 @@ router.post('/', async (req, res) => {
     let uploadResult = null;
     if (!pasta_drive) {
       console.log('📤 Fazendo upload para armazenamento local...');
+      // Para upload local, manter o timestamp para evitar conflitos
       uploadResult = await uploadFile(outputPath, outputFileName);
     } else {
       console.log('📤 Pasta do Drive especificada, pulando upload local...');
@@ -299,8 +302,11 @@ router.post('/', async (req, res) => {
          googleDriveFolderId = '1s_qJ1w7tlSxf1WcCgrSWTkUf1A4PG9Yz'; // Pasta padrão
        }
        
+       // Usar apenas o nome do vídeo para o upload (sem timestamp)
+       const uploadFileName = `${baseFileName}.m4a`;
        console.log(`📁 Usando pasta do Drive: ${googleDriveFolderId}`);
-       googleDriveUploadResult = await uploadToGoogleDriveFolder(outputPath, outputFileName, googleDriveFolderId);
+       console.log(`📝 Nome do arquivo para upload: ${uploadFileName}`);
+       googleDriveUploadResult = await uploadToGoogleDriveFolder(outputPath, uploadFileName, googleDriveFolderId);
      }
     
     // Limpar arquivos temporários
@@ -315,7 +321,7 @@ router.post('/', async (req, res) => {
         description: pasta_drive ? 'Arquivo enviado para Google Drive' : 'Arquivo disponível para download local'
       },
       file: {
-        originalName: outputFileName,
+        originalName: pasta_drive ? `${baseFileName}.m4a` : outputFileName,
         fileName: uploadResult ? uploadResult.fileName : null,
         size: uploadResult ? uploadResult.size : null,
         downloadUrl: uploadResult ? uploadResult.downloadUrl : null,
