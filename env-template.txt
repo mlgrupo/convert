@@ -1,0 +1,20 @@
+# Configurações do Servidor
+PORT=3000
+NODE_ENV=development
+
+# JWT (para autenticação se necessário)
+JWT_SECRET=seu_jwt_secret_aqui
+JWT_EXPIRES_IN=24h
+
+# Google Service Account (para Google Drive)
+GOOGLE_SERVICE_ACCOUNT_EMAIL=seu_service_account_email@projeto.iam.gserviceaccount.com
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSua chave privada aqui\n-----END PRIVATE KEY-----"
+GOOGLE_USER_EMAIL=leonardorosso@reconectaoficial.com.br
+
+# MinIO S3 Configuration
+MINIO_ENDPOINT=minios3.reconectaoficial.com
+MINIO_PORT=443
+MINIO_USE_SSL=true
+MINIO_ACCESS_KEY=developers
+MINIO_SECRET_KEY=rU8QEHTAKTHYkgvHwwXfDCHHmXyoIUiuP2T3onPE0Nfc6YcV
+MINIO_BUCKET_NAME=audio-processed 
