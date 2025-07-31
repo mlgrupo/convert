@@ -17,4 +17,7 @@ MINIO_PORT=443
 MINIO_USE_SSL=true
 MINIO_ACCESS_KEY=developers
 MINIO_SECRET_KEY=rU8QEHTAKTHYkgvHwwXfDCHHmXyoIUiuP2T3onPE0Nfc6YcV
-MINIO_BUCKET_NAME=audio-processed 
+MINIO_BUCKET_NAME=audio-processed
+
+# Transkriptor API
+ACCESS_TOKEN_TRANSKRIPTOR=seu_token_transkriptor_aqui 

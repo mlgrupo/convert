@@ -1,5 +1,4 @@
 version: '3.8'
-
 services:
   convert-api:
     build: .
@@ -8,13 +7,22 @@ services:
     environment:
       - NODE_ENV=production
       - GOOGLE_USER_EMAIL=leorosso@reconectaoficial.com.br
+      # Configurações de timeout para Node.js
+      - NODE_OPTIONS=--max-old-space-size=4096
     volumes:
       - ./uploads:/app/uploads
       - ./temp:/app/temp
     restart: unless-stopped
+    # Configurações de timeout para Docker
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/video/status"]
       interval: 30s
-      timeout: 10s
+      timeout: 30s  # Aumentado de 10s para 30s
       retries: 3
-      start_period: 40s 
+      start_period: 60s  # Aumentado de 40s para 60s 

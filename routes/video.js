@@ -7,6 +7,8 @@ const ytdl = require('ytdl-core');
 const axios = require('axios');
 const { processarUrlGoogleDrive, isGoogleDriveUrl, uploadToGoogleDriveFolder } = require('../config/google-auth');
 const { uploadFile, initializeStorage } = require('../config/storage');
+const webhookLogger = require('../utils/webhook');
+const transkriptorService = require('../services/transkriptor');
 
 // Função para baixar arquivo de URL genérica
 async function downloadFile(url) {
@@ -202,7 +204,7 @@ async function cleanupFiles(files) {
 
 // Rota principal para processar vídeo/áudio
 router.post('/', async (req, res) => {
-  const { link, pasta_drive } = req.body;
+  const { link, pasta_drive, transkriptor } = req.body;
   
   if (!link) {
     return res.status(400).json({ 
@@ -212,21 +214,37 @@ router.post('/', async (req, res) => {
         url: '/api/video',
         body: { 
           link: 'https://drive.google.com/drive/folders/...',
-          pasta_drive: 'https://drive.google.com/drive/u/0/folders/1s_qJ1w7tlSxf1WcCgrSWTkUf1A4PG9Yz' // opcional
+          pasta_drive: 'https://drive.google.com/drive/u/0/folders/1s_qJ1w7tlSxf1WcCgrSWTkUf1A4PG9Yz', // opcional
+          transkriptor: true // opcional - enviar para Transkriptor
         }
       }
     });
   }
 
+  // Preparar informações do vídeo para logs
+  const videoInfo = {
+    link: link,
+    id: Date.now().toString(),
+    title: null,
+    filename: null
+  };
+
   console.log(`🎬 Processando link: ${link}`);
   if (pasta_drive) {
     console.log(`📁 Pasta do Drive especificada: ${pasta_drive}`);
   }
+  if (transkriptor) {
+    console.log(`📝 Transkriptor habilitado`);
+  }
   
   let tempFilePath = null;
   let outputPath = null;
+  const startTime = Date.now();
   
   try {
+    // Log 1: Iniciando conversão
+    await webhookLogger.logStart(videoInfo);
+    
     // Inicializar armazenamento
     await ensureStorageInitialized();
     
@@ -234,16 +252,15 @@ router.post('/', async (req, res) => {
     let downloadPath;
     let videoTitle = null;
     
-         if (isGoogleDriveUrl(link)) {
-       console.log('📁 Detectado link do Google Drive');
-       // Gerar nome único para o arquivo temporário
-       const timestamp = Date.now();
-       const tempFileName = `drive_${timestamp}.mp4`;
-       const tempPath = path.join(__dirname, '../temp', tempFileName);
-       const driveResult = await processarUrlGoogleDrive(link, tempPath);
-       downloadPath = driveResult.path;
-       videoTitle = driveResult.fileName; // Usar o nome do arquivo do Drive
-     } else if (ytdl.validateURL(link)) {
+    if (isGoogleDriveUrl(link)) {
+      console.log('📁 Detectado link do Google Drive');
+      const timestamp = Date.now();
+      const tempFileName = `drive_${timestamp}.mp4`;
+      const tempPath = path.join(__dirname, '../temp', tempFileName);
+      const driveResult = await processarUrlGoogleDrive(link, tempPath);
+      downloadPath = driveResult.path;
+      videoTitle = driveResult.fileName;
+    } else if (ytdl.validateURL(link)) {
       console.log('📺 Detectado link do YouTube');
       const youtubeResult = await downloadYouTubeVideo(link);
       downloadPath = youtubeResult.path;
@@ -260,54 +277,86 @@ router.post('/', async (req, res) => {
     tempFilePath = downloadPath;
     console.log(`✅ Arquivo baixado: ${tempFilePath}`);
     
-         // Extrair metadados do vídeo para obter o nome (se não foi extraído do YouTube ou Google Drive)
-     if (!videoTitle) {
-       const metadata = await extractVideoMetadata(tempFilePath);
-       videoTitle = metadata.title;
-     }
-     
-     const safeVideoTitle = generateSafeFileName(videoTitle);
-     
-     // Gerar nome do arquivo baseado no título do vídeo ou nome padrão
-     const timestamp = Date.now();
-     const baseFileName = safeVideoTitle || `audio_${timestamp}`;
-     const outputFileName = `${baseFileName}.m4a`;
-     outputPath = path.join(__dirname, '../temp', outputFileName);
+    // Atualizar informações do vídeo
+    videoInfo.title = videoTitle;
+    videoInfo.filename = path.basename(tempFilePath);
+    
+    // Extrair metadados do vídeo para obter o nome (se não foi extraído do YouTube ou Google Drive)
+    if (!videoTitle) {
+      const metadata = await extractVideoMetadata(tempFilePath);
+      videoTitle = metadata.title;
+      videoInfo.title = videoTitle;
+    }
+    
+    const safeVideoTitle = generateSafeFileName(videoTitle);
+    
+    // Gerar nome do arquivo baseado no título do vídeo ou nome padrão
+    const timestamp = Date.now();
+    const baseFileName = safeVideoTitle || `audio_${timestamp}`;
+    const outputFileName = `${baseFileName}.m4a`;
+    outputPath = path.join(__dirname, '../temp', outputFileName);
     
     console.log(`📝 Nome do arquivo: ${outputFileName}`);
     console.log('🔄 Convertendo para M4A e removendo silêncio...');
     await convertToM4aAndRemoveSilence(tempFilePath, outputPath);
     console.log(`✅ Conversão concluída: ${outputPath}`);
     
+    // Log 2: Conversão concluída
+    const processingTime = Date.now() - startTime;
+    await webhookLogger.logConversionComplete(videoInfo, processingTime);
+    
     // Upload para armazenamento (apenas se não especificar pasta do Drive)
     let uploadResult = null;
     if (!pasta_drive) {
       console.log('📤 Fazendo upload para armazenamento local...');
-      // Para upload local, manter o timestamp para evitar conflitos
       uploadResult = await uploadFile(outputPath, outputFileName);
     } else {
       console.log('📤 Pasta do Drive especificada, pulando upload local...');
     }
-     
-     // Upload para pasta do Google Drive (se especificado)
-     let googleDriveUploadResult = null;
-     if (pasta_drive) {
-       console.log('📤 Fazendo upload para pasta do Google Drive...');
-       
-       // Determinar qual pasta usar
-       let googleDriveFolderId;
-       googleDriveFolderId = extrairIdPastaDrive(pasta_drive);
-       if (!googleDriveFolderId) {
-         console.warn('⚠️ Não foi possível extrair ID da pasta, usando pasta padrão');
-         googleDriveFolderId = '1s_qJ1w7tlSxf1WcCgrSWTkUf1A4PG9Yz'; // Pasta padrão
-       }
-       
-       // Usar apenas o nome do vídeo para o upload (sem timestamp)
-       const uploadFileName = `${baseFileName}.m4a`;
-       console.log(`📁 Usando pasta do Drive: ${googleDriveFolderId}`);
-       console.log(`📝 Nome do arquivo para upload: ${uploadFileName}`);
-       googleDriveUploadResult = await uploadToGoogleDriveFolder(outputPath, uploadFileName, googleDriveFolderId);
-     }
+    
+    // Upload para pasta do Google Drive (se especificado)
+    let googleDriveUploadResult = null;
+    if (pasta_drive) {
+      console.log('📤 Fazendo upload para pasta do Google Drive...');
+      
+      let googleDriveFolderId = extrairIdPastaDrive(pasta_drive);
+      if (!googleDriveFolderId) {
+        console.warn('⚠️ Não foi possível extrair ID da pasta, usando pasta padrão');
+        googleDriveFolderId = '1s_qJ1w7tlSxf1WcCgrSWTkUf1A4PG9Yz';
+      }
+      
+      const uploadFileName = `${baseFileName}.m4a`;
+      console.log(`📁 Usando pasta do Drive: ${googleDriveFolderId}`);
+      console.log(`📝 Nome do arquivo para upload: ${uploadFileName}`);
+      googleDriveUploadResult = await uploadToGoogleDriveFolder(outputPath, uploadFileName, googleDriveFolderId);
+    }
+    
+    // Upload para Transkriptor (se habilitado)
+    let transkriptorResult = null;
+    if (transkriptor === true) {
+      try {
+        console.log('📤 Enviando áudio para Transkriptor...');
+        transkriptorResult = await transkriptorService.uploadAudio(outputPath, outputFileName, 'pt-BR');
+        
+        // Log 3: Transkriptor enviado
+        await webhookLogger.logTranskriptorSent(videoInfo, transkriptorResult);
+        
+      } catch (transkriptorError) {
+        console.error('❌ Erro ao enviar para Transkriptor:', transkriptorError.message);
+        await webhookLogger.logError(videoInfo, transkriptorError, {
+          stage: 'transkriptor_upload',
+          additionalInfo: 'Falha no upload para Transkriptor'
+        });
+        // Não falhar o processo principal se o Transkriptor falhar
+      }
+    }
+    
+    // Log 4: Upload completo
+    await webhookLogger.logUploadComplete(videoInfo, {
+      googleDrive: googleDriveUploadResult,
+      transkriptor: transkriptorResult,
+      local: uploadResult
+    });
     
     // Limpar arquivos temporários
     await cleanupFiles([tempFilePath, outputPath]);
@@ -337,16 +386,30 @@ router.post('/', async (req, res) => {
         pastaEspecificada: !!pasta_drive,
         pastaUrl: pasta_drive || 'Pasta padrão'
       } : null,
+      transkriptor: transkriptorResult ? {
+        fileId: transkriptorResult.fileId,
+        status: transkriptorResult.status,
+        fileName: transkriptorResult.fileName,
+        language: transkriptorResult.language,
+        webhookUrl: transkriptorResult.webhookUrl
+      } : null,
       processing: {
         silenceRemoved: true,
         format: 'M4A',
         normalized: true,
-        videoTitle: videoTitle || 'Nome padrão'
+        videoTitle: videoTitle || 'Nome padrão',
+        processingTime: `${processingTime}ms`
       }
     });
     
   } catch (error) {
     console.error('❌ Erro no processamento:', error.message);
+    
+    // Log de erro
+    await webhookLogger.logError(videoInfo, error, {
+      stage: 'processing',
+      additionalInfo: 'Erro durante processamento principal'
+    });
     
     // Limpar arquivos em caso de erro
     await cleanupFiles([tempFilePath, outputPath]);
@@ -355,6 +418,48 @@ router.post('/', async (req, res) => {
       error: 'Erro no processamento do vídeo/áudio',
       details: error.message,
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Rota para verificar status do Transkriptor
+router.get('/transkriptor/status/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+
+  try {
+    const transkriptorService = require('../services/transkriptor');
+    const status = await transkriptorService.getFileStatus(orderId);
+    
+    res.json({
+      success: true,
+      status: status
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao verificar status:', error.message);
+    res.status(500).json({
+      error: 'Erro ao verificar status do Transkriptor',
+      details: error.message
+    });
+  }
+});
+
+// Rota para listar todos os arquivos do Transkriptor
+router.get('/transkriptor/files', async (req, res) => {
+  try {
+    const transkriptorService = require('../services/transkriptor');
+    const files = await transkriptorService.listAllFiles();
+    
+    res.json({
+      success: true,
+      files: files
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao listar arquivos:', error.message);
+    res.status(500).json({
+      error: 'Erro ao listar arquivos do Transkriptor',
+      details: error.message
     });
   }
 });
