@@ -10,6 +10,7 @@ const fs = require('fs-extra');
 // Importar rotas
 const videoRoutes = require('./routes/video');
 const { initializeStorage } = require('./config/storage');
+const videoDatabase = require('./services/video-database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -75,6 +76,9 @@ async function initializeServices() {
     // Inicializar armazenamento
     await initializeStorage();
     
+    // Inicializar banco de dados de vídeos
+    await videoDatabase.loadDatabase();
+    
     console.log('✅ Todos os serviços inicializados!');
   } catch (error) {
     console.error('❌ Erro ao inicializar serviços:', error.message);
@@ -99,6 +103,7 @@ async function startServer() {
       console.log(`   Google Drive: ✅ Integrado`);
       console.log(`   Armazenamento: ✅ Local`);
       console.log(`   FFmpeg: ✅ Disponível`);
+      console.log(`   Banco de Dados: ✅ JSON`);
       console.log(`   Email de Impersonation: ${process.env.GOOGLE_USER_EMAIL || 'Não configurado'}`);
     });
   } catch (error) {

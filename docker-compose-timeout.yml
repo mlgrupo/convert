@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   convert-api:
     build: .
@@ -9,6 +8,8 @@ services:
       - GOOGLE_USER_EMAIL=leorosso@reconectaoficial.com.br
       # Configurações de timeout para Node.js
       - NODE_OPTIONS=--max-old-space-size=4096
+      # Transkriptor API Token
+      - ACCESS_TOKEN_TRANSKRIPTOR=d1278f27349850804ad562232854e6cd18ced7dd842fc54c068fae9b653debcd1ddaa25ed451050543b99b2d017f26623a889405a02a9af2115d7447073dad63
     volumes:
       - ./uploads:/app/uploads
       - ./temp:/app/temp
